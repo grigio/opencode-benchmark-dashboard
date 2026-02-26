@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Ruff cache
+.ruff_cache/
+
+# Build outputs
+dist/
+
+# OS files
+.DS_Store
+
+# Test data (generated)
+solutions/
+results/
+prompts/
+prompts-answers/
+
+# Dashboard static (if generated)
+dashboard/
