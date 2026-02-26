@@ -1,0 +1,16 @@
+{
+  "name": "harness-test",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "benchmark": "bun run src/index.ts",
+    "dashboard": "bun run src/dashboard.ts"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0"
+  }
+}

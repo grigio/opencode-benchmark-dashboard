@@ -1,0 +1,12 @@
+you are a rust developer, do not forget to use lifetimes when needed. Do not explain if not requested
+--
+convert typescript in rust:
+
+```
+function longer(a, b) {
+    return a.length >= b.length ? a : b
+}
+
+console.log(longer("gatto", "cammello")) // => cammello
+
+```
