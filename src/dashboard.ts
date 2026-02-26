@@ -148,35 +148,46 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; padding: 20px; }
-    h1 { color: #333; margin-bottom: 20px; }
-    h2 { color: #333; margin: 30px 0 15px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f4ecd8; color: #5c4b37; padding: 20px; }
+    h1 { color: #3d2e1f; margin-bottom: 20px; }
+    h2 { color: #3d2e1f; margin: 30px 0 15px; }
     .container { max-width: 1400px; margin: 0 auto; }
     .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px; }
-    .stat-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .stat-card h3 { font-size: 14px; color: #666; margin-bottom: 5px; }
-    .stat-card .value { font-size: 32px; font-weight: bold; color: #333; }
+    .stat-card { background: #faf6eb; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(92, 75, 55, 0.1); }
+    .stat-card h3 { font-size: 14px; color: #7a6a56; margin-bottom: 5px; }
+    .stat-card .value { font-size: 32px; font-weight: bold; color: #3d2e1f; }
     .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; margin-bottom: 30px; }
-    .chart-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    table { width: 100%; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden; }
-    th, td { padding: 12px 15px; text-align: left; }
-    th { background: #4a90d9; color: white; font-weight: 600; }
-    tr:nth-child(even) { background: #f8f9fa; }
-    tr:hover { background: #e9ecef; }
+    .chart-container { background: #faf6eb; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(92, 75, 55, 0.1); }
+    .heatmap-table { width: 100%; background: #faf6eb; border-radius: 8px; box-shadow: 0 2px 4px rgba(92, 75, 55, 0.1); overflow-x: auto; }
+    .heatmap-table th, .heatmap-table td { padding: 10px 12px; text-align: center; border: 1px solid #e0d5c4; }
+    .heatmap-table th { background: #8b7355; color: #faf6eb; font-weight: 600; font-size: 12px; }
+    .heatmap-table th.model-col { text-align: left; background: #6b5344; }
+    .heatmap-table td.model-name { text-align: left; font-weight: 500; background: #faf6eb; }
+    .heatmap-cell { cursor: pointer; transition: transform 0.1s; min-width: 60px; }
+    .heatmap-cell:hover { transform: scale(1.05); }
+    .heatmap-pass { background: #c8e6c9; color: #2e7d32; }
+    .heatmap-pass-50 { background: #a5d6a7; color: #2e7d32; }
+    .heatmap-pass-75 { background: #81c784; color: #1b5e20; }
+    .heatmap-pass-100 { background: #4caf50; color: white; }
+    .heatmap-fail { background: #ffcdd2; color: #c62828; }
+    .heatmap-fail-50 { background: #ef9a9a; color: #c62828; }
+    .heatmap-fail-75 { background: #e57373; color: #b71c1c; }
+    .heatmap-fail-100 { background: #f44336; color: white; }
+    .heatmap-empty { background: #e8e0d0; color: #9e9e9e; }
     .badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
     .badge-pass { background: #d4edda; color: #155724; }
     .badge-fail { background: #f8d7da; color: #721c24; }
     .filters { margin-bottom: 20px; }
-    select, input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; margin-right: 10px; }
+    select, input { padding: 8px 12px; border: 1px solid #d4c4a8; border-radius: 4px; margin-right: 10px; background: #faf6eb; color: #5c4b37; }
     .run-info { background: #e7f3ff; padding: 10px 15px; border-radius: 4px; margin-bottom: 15px; border-left: 4px solid #4a90d9; }
-    .model-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 15px; }
-    .model-card h3 { color: #333; margin-bottom: 10px; }
+    .model-card { background: #faf6eb; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(92, 75, 55, 0.1); margin-bottom: 15px; }
+    .model-card h3 { color: #3d2e1f; margin-bottom: 10px; }
     .model-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
-    .model-stat { text-align: center; padding: 10px; background: #f8f9fa; border-radius: 4px; }
-    .model-stat-label { font-size: 12px; color: #666; }
-    .model-stat-value { font-size: 20px; font-weight: bold; color: #333; }
-    .refresh-btn { padding: 8px 16px; background: #4a90d9; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
-    .refresh-btn:hover { background: #357abd; }
+    .model-stat { text-align: center; padding: 10px; background: #f4ecd8; border-radius: 4px; }
+    .model-stat-label { font-size: 12px; color: #7a6a56; }
+    .model-stat-value { font-size: 20px; font-weight: bold; color: #3d2e1f; }
+    .refresh-btn { padding: 8px 16px; background: #8b7355; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+    .refresh-btn:hover { background: #6b5344; }
     .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
     .modal-overlay.active { display: flex; align-items: center; justify-content: center; }
     .modal { background: white; border-radius: 8px; max-width: 700px; width: 90%; max-height: 80vh; overflow: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
@@ -225,6 +236,7 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
       </div>
     </div>
 
+    <h2 style="margin: 30px 0 15px;">📊 Results Heatmap</h2>
     <div class="filters">
       <select id="modelSelect">
         <option value="">All Models</option>
@@ -232,25 +244,12 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
       </select>
       <button class="refresh-btn" id="refreshBtn">Refresh</button>
     </div>
-
-    <h2>📊 Model Performance</h2>
-    <div id="modelCards"></div>
-
-    <h2 style="margin: 30px 0 15px;">📋 All Test Results</h2>
-    <table id="resultsTable">
-      <thead>
-        <tr>
-          <th>Model</th>
-          <th>Test</th>
-          <th>Latency</th>
-          <th>Correct</th>
-          <th>Score</th>
-          <th>Date</th>
-        </tr>
-      </thead>
-      <tbody id="resultsBody">
-      </tbody>
-    </table>
+    <div class="heatmap-table">
+      <table id="heatmapTable">
+        <thead id="heatmapHead"></thead>
+        <tbody id="heatmapBody"></tbody>
+      </table>
+    </div>
   </div>
 
   <div class="modal-overlay" id="modalOverlay">
@@ -267,81 +266,60 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
   <script>
     const modelData = ${JSON.stringify(Object.fromEntries(modelData))};
     const models = ${JSON.stringify(models)};
-    let allResults = [];
+    const testCases = ${JSON.stringify(data.testCases)};
+    let heatmapResults = {};
 
-    function renderModelCards(selectedModel = null) {
-      const container = document.getElementById('modelCards');
+    function getHeatmapClass(correct, score) {
+      if (!correct) {
+        if (score >= 0.75) return 'heatmap-fail-100';
+        if (score >= 0.5) return 'heatmap-fail-75';
+        if (score >= 0.25) return 'heatmap-fail-50';
+        return 'heatmap-fail';
+      } else {
+        if (score >= 1) return 'heatmap-pass-100';
+        if (score >= 0.75) return 'heatmap-pass-75';
+        if (score >= 0.5) return 'heatmap-pass-50';
+        return 'heatmap-pass';
+      }
+    }
+
+    function renderHeatmap(selectedModel = null) {
+      const thead = document.getElementById('heatmapHead');
+      const tbody = document.getElementById('heatmapBody');
       const filteredModels = selectedModel ? [selectedModel] : models;
       
-      container.innerHTML = filteredModels.map(m => {
+      heatmapResults = {};
+      
+      thead.innerHTML = '<tr><th class="model-col">Model</th>' + 
+        testCases.map(tc => '<th>' + tc + '</th>').join('') + '</tr>';
+      
+      tbody.innerHTML = filteredModels.map(m => {
         const data = modelData[m];
-        return \`
-          <div class="model-card">
-            <h3>\${m}</h3>
-            <div class="model-stats">
-              <div class="model-stat">
-                <div class="model-stat-label">Runs</div>
-                <div class="model-stat-value">\${data.runs.length}</div>
-              </div>
-              <div class="model-stat">
-                <div class="model-stat-label">Tests</div>
-                <div class="model-stat-value">\${data.totalTests}</div>
-              </div>
-              <div class="model-stat">
-                <div class="model-stat-label">Passed</div>
-                <div class="model-stat-value">\${data.totalPassed}</div>
-              </div>
-              <div class="model-stat">
-                <div class="model-stat-label">Failed</div>
-                <div class="model-stat-value">\${data.totalFailed}</div>
-              </div>
-              <div class="model-stat">
-                <div class="model-stat-label">Avg Latency</div>
-                <div class="model-stat-value">\${data.avgLatency}ms</div>
-              </div>
-              <div class="model-stat">
-                <div class="model-stat-label">Accuracy</div>
-                <div class="model-stat-value">\${data.accuracy}%</div>
-              </div>
-            </div>
-          </div>
-        \`;
+        const resultsMap = {};
+        data.allResults.forEach(r => {
+          resultsMap[r.testCase] = r;
+          heatmapResults[m + '|' + r.testCase] = r;
+        });
+        
+        const cells = testCases.map(tc => {
+          const result = resultsMap[tc];
+          if (result) {
+            const cls = getHeatmapClass(result.correct, result.score);
+            const pct = Math.round(result.score * 100);
+            return '<td class="heatmap-cell ' + cls + '" data-key="' + m + '|' + tc + '">' + pct + '%</td>';
+          }
+          return '<td class="heatmap-cell heatmap-empty" data-key="' + m + '|' + tc + '">-</td>';
+        });
+        
+        return '<tr><td class="model-name">' + m + '</td>' + cells.join('') + '</tr>';
       }).join('');
     }
 
-    function renderTable(selectedModel = null) {
-      const tbody = document.getElementById('resultsBody');
-      let rows = [];
-      let idx = 0;
-      
-      for (const [model, data] of Object.entries(modelData)) {
-        if (selectedModel && model !== selectedModel) continue;
-        
-        for (const result of data.allResults) {
-          rows.push(\`
-            <tr data-idx="\${idx}">
-              <td>\${model}</td>
-              <td>\${result.testCase}</td>
-              <td>\${result.latencyMs}ms</td>
-              <td><span class="badge \${result.correct ? 'badge-pass' : 'badge-fail'}" data-idx="\${idx}">
-                  \${result.correct ? '✓' : '✗'}
-                </span></td>
-              <td>\${Math.round(result.score * 100)}%</td>
-              <td>\${new Date(result.timestamp).toLocaleString()}</td>
-            </tr>
-          \`);
-          allResults.push({ model, ...result });
-          idx++;
-        }
-      }
-      
-      tbody.innerHTML = rows.join('');
-    }
-
-    function showModal(idx) {
-      const r = allResults[idx];
+    function showModal(key) {
+      const r = heatmapResults[key];
       if (!r) return;
-      document.getElementById('modalTitle').textContent = r.model + ' - ' + r.testCase;
+      const [model, testCase] = key.split('|');
+      document.getElementById('modalTitle').textContent = model + ' - ' + testCase;
       const matchClass = r.correct ? 'match' : 'no-match';
       const reasoning = r.verification ? r.verification.reasoning : '';
       document.getElementById('modalBody').innerHTML = \`
@@ -379,8 +357,8 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
 
     document.addEventListener('click', (e) => {
       const target = e.target;
-      if (target.classList.contains('badge') && target.dataset.idx !== undefined) {
-        showModal(parseInt(target.dataset.idx, 10));
+      if (target.classList.contains('heatmap-cell') && target.dataset.key) {
+        showModal(target.dataset.key);
       }
     });
 
@@ -393,8 +371,8 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
           datasets: [{
             label: 'Avg Latency (ms)',
             data: models.map(m => modelData[m].avgLatency),
-            backgroundColor: 'rgba(74, 144, 217, 0.7)',
-            borderColor: 'rgba(74, 144, 217, 1)',
+            backgroundColor: 'rgba(139, 115, 85, 0.7)',
+            borderColor: 'rgba(107, 83, 68, 1)',
             borderWidth: 1
           }]
         },
@@ -411,8 +389,8 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
           datasets: [{
             label: 'Accuracy (%)',
             data: models.map(m => modelData[m].accuracy),
-            backgroundColor: models.map(m => modelData[m].accuracy >= 80 ? 'rgba(40, 167, 69, 0.7)' : 'rgba(255, 193, 7, 0.7)'),
-            borderColor: models.map(m => modelData[m].accuracy >= 80 ? 'rgba(40, 167, 69, 1)' : 'rgba(255, 193, 7, 1)'),
+            backgroundColor: models.map(m => modelData[m].accuracy >= 80 ? 'rgba(76, 175, 80, 0.7)' : 'rgba(255, 193, 7, 0.7)'),
+            borderColor: models.map(m => modelData[m].accuracy >= 80 ? 'rgba(76, 175, 80, 1)' : 'rgba(255, 193, 7, 1)'),
             borderWidth: 1
           }]
         },
@@ -425,8 +403,7 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
 
     document.getElementById('modelSelect').addEventListener('change', (e) => {
       const selectedModel = e.target.value || null;
-      renderModelCards(selectedModel);
-      renderTable(selectedModel);
+      renderHeatmap(selectedModel);
     });
 
     document.getElementById('refreshBtn').addEventListener('click', async () => {
@@ -447,12 +424,10 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
         
         const selectedModel = select.value || null;
         
-        document.getElementById('modelCards').innerHTML = '';
         document.getElementById('latencyChart').parentElement.innerHTML = '<canvas id="latencyChart"></canvas>';
         document.getElementById('accuracyChart').parentElement.innerHTML = '<canvas id="accuracyChart"></canvas>';
         
-        renderModelCards(selectedModel);
-        renderTable(selectedModel);
+        renderHeatmap(selectedModel);
         
         if (models.length > 0) {
           new Chart(document.getElementById('latencyChart'), {
@@ -497,8 +472,7 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
       btn.textContent = 'Refresh';
     });
 
-    renderModelCards();
-    renderTable();
+    renderHeatmap();
   </script>
 </body>
 </html>
