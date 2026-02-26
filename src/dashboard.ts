@@ -60,8 +60,8 @@ function loadAllRuns(): DashboardData {
 
   return {
     runs,
-    models: Array.from(models),
-    testCases: Array.from(testCases)
+    models: Array.from(models).sort(),
+    testCases: Array.from(testCases).sort()
   };
 }
 
@@ -136,7 +136,7 @@ function loadModelData(): Map<string, ModelData> {
 }
 
 const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
-  const models = Array.from(modelData.keys());
+  const models = Array.from(modelData.keys()).sort();
   
   return `
 <!DOCTYPE html>
