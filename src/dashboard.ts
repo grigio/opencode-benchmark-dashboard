@@ -158,11 +158,11 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
     .stat-card .value { font-size: 32px; font-weight: bold; color: #3d2e1f; }
     .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; margin-bottom: 30px; }
     .chart-container { background: #faf6eb; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(92, 75, 55, 0.1); }
-    .heatmap-table { width: 100%; background: #faf6eb; border-radius: 8px; box-shadow: 0 2px 4px rgba(92, 75, 55, 0.1); overflow-x: auto; }
+    .heatmap-table { width: 100%; background: #faf6eb; border-radius: 8px; box-shadow: 0 2px 4px rgba(92, 75, 55, 0.1); overflow: auto; max-height: 70vh; }
     .heatmap-table th, .heatmap-table td { padding: 10px 12px; text-align: center; border: 1px solid #e0d5c4; }
-    .heatmap-table th { background: #8b7355; color: #faf6eb; font-weight: 600; font-size: 12px; }
-    .heatmap-table th.model-col { text-align: left; background: #6b5344; }
-    .heatmap-table td.model-name { text-align: left; font-weight: 500; background: #faf6eb; }
+    .heatmap-table th { background: #8b7355; color: #faf6eb; font-weight: 600; font-size: 12px; position: sticky; top: 0; z-index: 10; }
+    .heatmap-table th.model-col { text-align: left; background: #6b5344; position: sticky; left: 0; z-index: 20; }
+    .heatmap-table td.model-name { text-align: left; font-weight: 500; background: #faf6eb; position: sticky; left: 0; z-index: 5; }
     .heatmap-cell { cursor: pointer; transition: transform 0.1s; min-width: 60px; }
     .heatmap-cell:hover { transform: scale(1.05); }
     .heatmap-pass { background: #c8e6c9; color: #2e7d32; }
@@ -178,7 +178,9 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
     .badge-pass { background: #d4edda; color: #155724; }
     .badge-fail { background: #f8d7da; color: #721c24; }
     .filters { margin-bottom: 20px; }
+    .filters label { display: block; margin-bottom: 5px; font-size: 14px; }
     select, input { padding: 8px 12px; border: 1px solid #d4c4a8; border-radius: 4px; margin-right: 10px; background: #faf6eb; color: #5c4b37; }
+    select[multiple] { min-height: 80px; }
     .run-info { background: #e7f3ff; padding: 10px 15px; border-radius: 4px; margin-bottom: 15px; border-left: 4px solid #4a90d9; }
     .model-card { background: #faf6eb; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(92, 75, 55, 0.1); margin-bottom: 15px; }
     .model-card h3 { color: #3d2e1f; margin-bottom: 10px; }
@@ -229,16 +231,14 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
 
     <div class="charts">
       <div class="chart-container">
-        <canvas id="latencyChart"></canvas>
-      </div>
-      <div class="chart-container">
-        <canvas id="accuracyChart"></canvas>
+        <canvas id="scatterChart"></canvas>
       </div>
     </div>
 
     <h2 style="margin: 30px 0 15px;">📊 Results Heatmap</h2>
     <div class="filters">
-      <select id="modelSelect">
+      <label for="modelSelect">Filter by models (Ctrl+Click to select multiple):</label>
+      <select id="modelSelect" multiple size="3">
         <option value="">All Models</option>
         ${models.map(m => `<option value="${m}">${m}</option>`).join("")}
       </select>
@@ -268,6 +268,7 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
     const models = ${JSON.stringify(models)};
     const testCases = ${JSON.stringify(data.testCases)};
     let heatmapResults = {};
+    let currentKey = null;
 
     function getHeatmapClass(correct, score) {
       if (!correct) {
@@ -283,10 +284,10 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
       }
     }
 
-    function renderHeatmap(selectedModel = null) {
+    function renderHeatmap(selectedModels = []) {
       const thead = document.getElementById('heatmapHead');
       const tbody = document.getElementById('heatmapBody');
-      const filteredModels = selectedModel ? [selectedModel] : models;
+      const filteredModels = selectedModels.length > 0 ? selectedModels : models;
       
       heatmapResults = {};
       
@@ -304,9 +305,13 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
         const cells = testCases.map(tc => {
           const result = resultsMap[tc];
           if (result) {
+            if (!result.output || result.output.trim() === '') {
+              return '<td class="heatmap-cell heatmap-empty" data-key="' + m + '|' + tc + '">-</td>';
+            }
             const cls = getHeatmapClass(result.correct, result.score);
             const pct = Math.round(result.score * 100);
-            return '<td class="heatmap-cell ' + cls + '" data-key="' + m + '|' + tc + '">' + pct + '%</td>';
+            const seconds = Math.round(result.latencyMs / 1000);
+            return '<td class="heatmap-cell ' + cls + '" data-key="' + m + '|' + tc + '">' + pct + '% (' + seconds + 's)</td>';
           }
           return '<td class="heatmap-cell heatmap-empty" data-key="' + m + '|' + tc + '">-</td>';
         });
@@ -318,6 +323,7 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
     function showModal(key) {
       const r = heatmapResults[key];
       if (!r) return;
+      currentKey = key;
       const [model, testCase] = key.split('|');
       document.getElementById('modalTitle').textContent = model + ' - ' + testCase;
       const matchClass = r.correct ? 'match' : 'no-match';
@@ -341,17 +347,69 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
       document.getElementById('modalOverlay').classList.add('active');
     }
 
+    function closeModal() {
+      document.getElementById('modalOverlay').classList.remove('active');
+      currentKey = null;
+    }
+
+    function getAdjacentKey(key, direction) {
+      if (!key) return null;
+      const [model, testCase] = key.split('|');
+      const modelIdx = models.indexOf(model);
+      const testIdx = testCases.indexOf(testCase);
+      if (modelIdx === -1 || testIdx === -1) return null;
+
+      let newModelIdx = modelIdx;
+      let newTestIdx = testIdx;
+
+      if (direction === 'left') newTestIdx--;
+      else if (direction === 'right') newTestIdx++;
+      else if (direction === 'up') newModelIdx--;
+      else if (direction === 'down') newModelIdx++;
+
+      if (newModelIdx < 0 || newModelIdx >= models.length) return null;
+      if (newTestIdx < 0 || newTestIdx >= testCases.length) return null;
+
+      return models[newModelIdx] + '|' + testCases[newTestIdx];
+    }
+
     function escapeHtml(str) {
       return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     }
 
     document.getElementById('modalClose').addEventListener('click', () => {
-      document.getElementById('modalOverlay').classList.remove('active');
+      closeModal();
     });
 
     document.getElementById('modalOverlay').addEventListener('click', (e) => {
       if (e.target === document.getElementById('modalOverlay')) {
-        document.getElementById('modalOverlay').classList.remove('active');
+        closeModal();
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      const modal = document.getElementById('modalOverlay');
+      if (!modal.classList.contains('active')) return;
+
+      if (e.key === 'Escape') {
+        closeModal();
+        return;
+      }
+
+      if (currentKey) {
+        if (e.key === 'ArrowLeft') {
+          const newKey = getAdjacentKey(currentKey, 'left');
+          if (newKey && heatmapResults[newKey]) { showModal(newKey); e.preventDefault(); }
+        } else if (e.key === 'ArrowRight') {
+          const newKey = getAdjacentKey(currentKey, 'right');
+          if (newKey && heatmapResults[newKey]) { showModal(newKey); e.preventDefault(); }
+        } else if (e.key === 'ArrowUp') {
+          const newKey = getAdjacentKey(currentKey, 'up');
+          if (newKey && heatmapResults[newKey]) { showModal(newKey); e.preventDefault(); }
+        } else if (e.key === 'ArrowDown') {
+          const newKey = getAdjacentKey(currentKey, 'down');
+          if (newKey && heatmapResults[newKey]) { showModal(newKey); e.preventDefault(); }
+        }
       }
     });
 
@@ -362,48 +420,109 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
       }
     });
 
-    // Charts
-    if (models.length > 0) {
-      new Chart(document.getElementById('latencyChart'), {
-        type: 'bar',
+    // Chart plugin to draw persistent labels for selected points
+    const labelPlugin = {
+      id: 'pointLabels',
+      afterDraw: (chart) => {
+        const ctx = chart.ctx;
+        const xAxis = chart.scales.x;
+        const yAxis = chart.scales.y;
+        
+        selectedPoints.forEach(idx => {
+          const point = chart.data.datasets[0].data[idx];
+          if (!point || !point.label) return;
+          
+          const x = xAxis.getPixelForValue(point.x);
+          const y = yAxis.getPixelForValue(point.y);
+          
+          const label = point.label;
+          ctx.font = 'bold 12px -apple-system, BlinkMacSystemFont, sans-serif';
+          const textWidth = ctx.measureText(label).width;
+          const padding = 6;
+          const boxWidth = textWidth + padding * 2;
+          const boxHeight = 20;
+          const boxX = x + 12;
+          const boxY = y - boxHeight / 2;
+          
+          ctx.save();
+          ctx.fillStyle = 'rgba(107, 83, 68, 0.9)';
+          ctx.beginPath();
+          ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 4);
+          ctx.fill();
+          
+          ctx.fillStyle = '#fff';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(label, boxX + padding, boxY + boxHeight / 2);
+          ctx.restore();
+        });
+      }
+    };
+    
+    Chart.register(labelPlugin);
+    
+    let selectedPoints = new Set();
+    let scatterChart = null;
+
+    function createChart() {
+      if (scatterChart) scatterChart.destroy();
+      
+      scatterChart = new Chart(document.getElementById('scatterChart'), {
+        type: 'scatter',
         data: {
-          labels: models.map(m => m.split('/').pop() || m),
           datasets: [{
-            label: 'Avg Latency (ms)',
-            data: models.map(m => modelData[m].avgLatency),
+            label: 'Models',
+            data: models.map(m => ({ x: modelData[m].avgLatency, y: modelData[m].accuracy, label: m })),
             backgroundColor: 'rgba(139, 115, 85, 0.7)',
             borderColor: 'rgba(107, 83, 68, 1)',
-            borderWidth: 1
+            borderWidth: 1,
+            pointRadius: 8,
+            pointHoverRadius: 10
           }]
         },
         options: {
           responsive: true,
-          plugins: { title: { display: true, text: 'Average Latency by Model' } }
-        }
-      });
-
-      new Chart(document.getElementById('accuracyChart'), {
-        type: 'bar',
-        data: {
-          labels: models.map(m => m.split('/').pop() || m),
-          datasets: [{
-            label: 'Accuracy (%)',
-            data: models.map(m => modelData[m].accuracy),
-            backgroundColor: models.map(m => modelData[m].accuracy >= 80 ? 'rgba(76, 175, 80, 0.7)' : 'rgba(255, 193, 7, 0.7)'),
-            borderColor: models.map(m => modelData[m].accuracy >= 80 ? 'rgba(76, 175, 80, 1)' : 'rgba(255, 193, 7, 1)'),
-            borderWidth: 1
-          }]
-        },
-        options: {
-          responsive: true,
-          plugins: { title: { display: true, text: 'Accuracy by Model' } }
+          onClick: (event, elements) => {
+            if (elements.length > 0) {
+              const idx = elements[0].index;
+              if (selectedPoints.has(idx)) {
+                selectedPoints.delete(idx);
+              } else {
+                selectedPoints.add(idx);
+              }
+              scatterChart.draw();
+            }
+          },
+          plugins: { 
+            title: { display: true, text: 'Accuracy vs Latency' },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  const label = ctx.raw.label || ctx.raw.x;
+                  return label + ': ' + ctx.raw.y + '% accuracy, ' + ctx.raw.x + 'ms latency';
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              title: { display: true, text: 'Latency (ms)' }
+            },
+            y: {
+              title: { display: true, text: 'Accuracy (%)' },
+              min: 0,
+              max: 100
+            }
+          }
         }
       });
     }
 
+    createChart();
+
     document.getElementById('modelSelect').addEventListener('change', (e) => {
-      const selectedModel = e.target.value || null;
-      renderHeatmap(selectedModel);
+      const selected = Array.from(e.target.selectedOptions).map(opt => opt.value).filter(v => v);
+      renderHeatmap(selected);
     });
 
     document.getElementById('refreshBtn').addEventListener('click', async () => {
@@ -422,50 +541,11 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
         }
         select.innerHTML = options;
         
-        const selectedModel = select.value || null;
+        const selectedModels = Array.from(select.selectedOptions).map(opt => opt.value).filter(v => v);
         
-        document.getElementById('latencyChart').parentElement.innerHTML = '<canvas id="latencyChart"></canvas>';
-        document.getElementById('accuracyChart').parentElement.innerHTML = '<canvas id="accuracyChart"></canvas>';
+        createChart();
         
-        renderHeatmap(selectedModel);
-        
-        if (models.length > 0) {
-          new Chart(document.getElementById('latencyChart'), {
-            type: 'bar',
-            data: {
-              labels: models.map(m => m.split('/').pop() || m),
-              datasets: [{
-                label: 'Avg Latency (ms)',
-                data: models.map(m => modelData[m].avgLatency),
-                backgroundColor: 'rgba(74, 144, 217, 0.7)',
-                borderColor: 'rgba(74, 144, 217, 1)',
-                borderWidth: 1
-              }]
-            },
-            options: {
-              responsive: true,
-              plugins: { title: { display: true, text: 'Average Latency by Model' } }
-            }
-          });
-
-          new Chart(document.getElementById('accuracyChart'), {
-            type: 'bar',
-            data: {
-              labels: models.map(m => m.split('/').pop() || m),
-              datasets: [{
-                label: 'Accuracy (%)',
-                data: models.map(m => modelData[m].accuracy),
-                backgroundColor: models.map(m => modelData[m].accuracy >= 80 ? 'rgba(40, 167, 69, 0.7)' : 'rgba(255, 193, 7, 0.7)'),
-                borderColor: models.map(m => modelData[m].accuracy >= 80 ? 'rgba(40, 167, 69, 1)' : 'rgba(255, 193, 7, 1)'),
-                borderWidth: 1
-              }]
-            },
-            options: {
-              responsive: true,
-              plugins: { title: { display: true, text: 'Accuracy by Model' } }
-            }
-          });
-        }
+        renderHeatmap(selectedModels);
       } catch (e) {
         console.error('Refresh failed:', e);
       }

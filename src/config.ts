@@ -37,8 +37,23 @@ function loadTestCasesFromFiles(): TestCase[] {
 
 export function loadConfig(configPath?: string): BenchmarkConfig {
   const path = configPath || resolve("./config/benchmark.json");
-  const content = readFileSync(path, "utf-8");
-  const jsonConfig = JSON.parse(content);
+  
+  if (!existsSync(path)) {
+    throw new Error(`Config file not found: ${path}`);
+  }
+
+  let jsonConfig: any;
+  try {
+    const content = readFileSync(path, "utf-8");
+    jsonConfig = JSON.parse(content);
+  } catch (e: any) {
+    throw new Error(`Failed to parse config file ${path}: ${e.message}`);
+  }
+
+  if (!jsonConfig.timeout || typeof jsonConfig.timeout !== "number") {
+    jsonConfig.timeout = 300000;
+    console.warn("⚠️  Config missing timeout, using default: 300000ms");
+  }
 
   const testCases = loadTestCasesFromFiles();
 

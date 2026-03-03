@@ -14,8 +14,11 @@ harness-test/
 │   ├── dashboard.ts  # Web dashboard server
 │   ├── runner.ts     # Benchmark execution logic
 │   ├── verifier.ts   # Output verification (correctness)
+│   ├── verify.ts     # LLM-based verification runner
 │   ├── config.ts     # Config file loader
-│   └── types.ts      # TypeScript interfaces
+│   ├── utils.ts      # Shared utilities
+│   ├── types.ts      # TypeScript interfaces
+│   └── runner.test.ts # Tests
 ├── config/
 │   └── benchmark.json    # Timeout & verification config
 ├── prompts/               # Test case prompts (one file per test)
@@ -46,7 +49,7 @@ Alternative methods available:
 
 - Default timeout: 5 minutes (configurable in `benchmark.json`)
 - Uses Bun's `spawn()` with Promise.race for timeout
-- On timeout: kills process, marks as failed with error
+- On timeout: sends SIGTERM first, then SIGKILL after 5s grace period
 
 ### 3. Output Handling
 
@@ -86,11 +89,23 @@ bun install
 # Run benchmark with a specific model
 bun run src/index.ts -m "opencode/minimax-m2.5-free"
 
+# Run single test case
+bun run src/index.ts -m "opencode/minimax-m2.5-free" -t EXTRACT-FAST-kuleba
+
 # Verify results (model to verify via -m, verifier from benchmark.json)
 bun run src/verify.ts -m "opencode-minimax-m2-5-free"
 
+# Verify with custom verifier model
+bun run src/verify.ts -m "opencode-minimax-m2-5-free" -v "opencode/another-model"
+
+# Verify single test case
+bun run src/verify.ts -m "opencode-minimax-m2-5-free" -t EXTRACT-FAST-kuleba
+
 # Start dashboard (in another terminal)
 bun run src/dashboard.ts
+
+# Run tests
+bun test src/runner.test.ts
 ```
 
 ## Verification

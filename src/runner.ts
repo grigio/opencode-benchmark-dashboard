@@ -1,92 +1,87 @@
-import { writeFileSync, mkdirSync, existsSync } from "fs";
+import { writeFileSync, readFileSync } from "fs";
 import { resolve, join } from "path";
 import type { BenchmarkConfig, BenchmarkResult, RunSummary, ModelStats } from "./types.ts";
+import { ensureDir, sanitizeModelName, generateRunId, loadExistingResults, runOpencode, SOLUTIONS_DIR, RESULTS_DIR } from "./utils.ts";
 
-const SOLUTIONS_DIR = resolve("./solutions");
-const RESULTS_DIR = resolve("./results");
+export { sanitizeModelName, loadExistingResults };
 
-function ensureDir(path: string) {
-  if (!existsSync(path)) {
-    mkdirSync(path, { recursive: true });
+export function mergeResults(existing: RunSummary, newResults: BenchmarkResult[]): RunSummary {
+  const resultsMap = new Map<string, BenchmarkResult>();
+  
+  for (const r of existing.results) {
+    resultsMap.set(r.testCase, r);
   }
-}
-
-function sanitizeModelName(model: string): string {
-  return model
-    .replace(/[^a-zA-Z0-9]/g, (match) => {
-      if (match === "/" || match === ":" || match === "-") return "-";
-      if (match === ".") return "-";
-      return "_";
-    })
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-}
-
-function generateRunId(): string {
-  return `run_${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`;
-}
-
-async function runOpencode(prompt: string, model: string, timeout: number): Promise<{ output: string; error?: string }> {
-  try {
-    const env: Record<string, string> = {};
-    for (const key in process.env) {
-      const val = process.env[key];
-      if (val !== undefined) env[key] = val;
-    }
-    if (model) {
-      env.OPENCODE_MODEL = model;
-    }
-
-    const proc = Bun.spawn(["opencode", "run", "--model", model, prompt], {
-      env,
-      stdout: "pipe",
-      stderr: "pipe"
-    });
-
-    const timeoutPromise = new Promise<{ output: string; error: string }>((_, reject) => {
-      setTimeout(() => {
-        proc.kill();
-        reject({ output: "", error: "Timeout" });
-      }, timeout);
-    });
-
-    const outputPromise = (async () => {
-      const stdout = await new Response(proc.stdout).text();
-      const stderr = await new Response(proc.stderr).text();
-      const exitCode = await proc.exited;
-      if (exitCode === 0) {
-        return { output: stdout, error: undefined };
-      } else {
-        return { output: stdout, error: stderr || `Exit code: ${exitCode}` };
-      }
-    })();
-
-    return await Promise.race([outputPromise, timeoutPromise]);
-  } catch (e: any) {
-    return { output: "", error: e.message || String(e) };
+  
+  for (const r of newResults) {
+    resultsMap.set(r.testCase, r);
   }
+  
+  const mergedResults = Array.from(resultsMap.values());
+  
+  const passed = mergedResults.filter(r => r.correct).length;
+  const failed = mergedResults.length - passed;
+  
+  const avgLatency = mergedResults.reduce((sum, r) => sum + r.latencyMs, 0) / mergedResults.length;
+  
+  const modelStats: ModelStats[] = [{
+    model: existing.modelStats[0]?.model || newResults[0]?.model || "",
+    totalTests: mergedResults.length,
+    passed,
+    failed,
+    avgLatencyMs: Math.round(avgLatency),
+    accuracy: Math.round((passed / mergedResults.length) * 100)
+  }];
+
+  return {
+    ...existing,
+    totalTests: mergedResults.length,
+    passed,
+    failed,
+    results: mergedResults,
+    modelStats
+  };
 }
 
-export async function runBenchmark(config: BenchmarkConfig, singleModel?: string): Promise<RunSummary> {
-  const runId = singleModel ? sanitizeModelName(singleModel) : generateRunId();
+export async function runBenchmark(
+  config: BenchmarkConfig,
+  singleModel?: string,
+  singleTestCase?: string,
+  existingResults?: RunSummary | null
+): Promise<RunSummary> {
+  const sanitizedModel = singleModel ? sanitizeModelName(singleModel) : generateRunId();
   const timestamp = new Date().toISOString();
-  const results: BenchmarkResult[] = [];
+  const results: BenchmarkResult[] = existingResults ? [...existingResults.results] : [];
   const modelResults: Map<string, BenchmarkResult[]> = new Map();
+  
+  let testCasesToRun = config.testCases;
+  if (singleTestCase) {
+    testCasesToRun = config.testCases.filter(tc => tc.id === singleTestCase);
+    if (testCasesToRun.length === 0) {
+      console.error(`❌ Test case not found: ${singleTestCase}`);
+      console.log(`📋 Available test cases: ${config.testCases.map(tc => tc.id).join(", ")}`);
+      process.exit(1);
+    }
+  }
 
   ensureDir(SOLUTIONS_DIR);
   ensureDir(RESULTS_DIR);
 
   const modelsToRun = singleModel ? [singleModel] : [];
 
-  console.log(`\n🚀 Starting benchmark run: ${runId}`);
+  console.log(`\n🚀 Starting benchmark run: ${sanitizedModel}`);
   console.log(`📋 Models: ${modelsToRun.length}`);
-  console.log(`🧪 Test cases: ${config.testCases.length}`);
+  console.log(`🧪 Test cases: ${testCasesToRun.length}${singleTestCase ? ` (filtered: ${singleTestCase})` : ""}`);
   console.log(`⏱️  Timeout: ${config.timeout}ms\n`);
 
   for (const model of modelsToRun) {
     console.log(`\n🤖 Testing model: ${model}`);
     
-    for (const testCase of config.testCases) {
+    for (const testCase of testCasesToRun) {
+      const existingIndex = results.findIndex(r => r.testCase === testCase.id && r.model === model);
+      if (existingIndex !== -1) {
+        results.splice(existingIndex, 1);
+      }
+      
       const startTime = Date.now();
       let output = "";
       let error: string | undefined;
@@ -95,8 +90,13 @@ export async function runBenchmark(config: BenchmarkConfig, singleModel?: string
         const result = await runOpencode(testCase.prompt, model, config.timeout);
         output = result.output;
         error = result.error;
+        
+        if (error && (error.includes("Model not found") || error.includes("ModelNotFoundError") || error.includes("ProviderModelNotFoundError"))) {
+          console.error(`\n❌ Error: Invalid model '${model}' - ${error.split('\n')[0]}`);
+          process.exit(1);
+        }
       } catch (e: any) {
-        error = e.message || String(e);
+        error = e.stack || e.message || String(e);
       }
 
       const latencyMs = Date.now() - startTime;
@@ -152,7 +152,7 @@ export async function runBenchmark(config: BenchmarkConfig, singleModel?: string
   }
 
   const summary: RunSummary = {
-    runId,
+    runId: sanitizedModel,
     timestamp,
     totalTests: results.length,
     passed,
@@ -161,7 +161,7 @@ export async function runBenchmark(config: BenchmarkConfig, singleModel?: string
     modelStats
   };
 
-  const resultsFile = join(RESULTS_DIR, `${runId}.json`);
+  const resultsFile = join(RESULTS_DIR, `${sanitizedModel}.json`);
   writeFileSync(resultsFile, JSON.stringify(summary, null, 2));
 
   console.log(`\n📊 Results saved to: ${resultsFile}`);

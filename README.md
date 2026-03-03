@@ -24,8 +24,11 @@ harness-test/
 │   ├── dashboard.ts  # Web dashboard server
 │   ├── runner.ts     # Benchmark execution logic
 │   ├── verifier.ts   # Output verification (correctness)
+│   ├── verify.ts     # LLM-based verification runner
 │   ├── config.ts     # Config file loader
-│   └── types.ts      # TypeScript interfaces
+│   ├── utils.ts      # Shared utilities
+│   ├── types.ts      # TypeScript interfaces
+│   └── runner.test.ts # Tests
 ├── config/
 │   └── benchmark.json    # Timeout & verification config
 ├── prompts/               # Test case prompts (one file per test)
@@ -43,13 +46,21 @@ harness-test/
 bun run src/index.ts -m "opencode/minimax-m2.5-free"
 ```
 
-The `-m` flag specifies the model to test. Results are saved to `results/{sanitized-model}.json`.
+Flags:
+- `-m, --model`: Model to test (required)
+- `-t, --test`: Run single test case (optional)
+- `-o, --timeout`: Override timeout in ms (optional)
 
 ### Verification
 
 ```bash
 bun run src/verify.ts -m "opencode-minimax-m2-5-free"
 ```
+
+Flags:
+- `-m, --model`: Model to verify (auto-detects latest if omitted)
+- `-t, --test`: Verify single test case (optional)
+- `-v, --verifier`: Override verifier model (optional)
 
 Verifies results using an LLM-based verifier (model configured in `config/benchmark.json`).
 
@@ -81,3 +92,11 @@ Edit `config/benchmark.json`:
 - [Bun](https://bun.sh/) runtime
 - [opencode](https://opencode.ai) CLI installed and in PATH
 - Models pre-configured in `~/.config/opencode/opencode.json`
+
+## Testing
+
+```bash
+bun test src/runner.test.ts
+```
+
+Tests cover: verifier logic, config loading, model name sanitization, result merging, and utility functions.

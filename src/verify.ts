@@ -2,9 +2,7 @@ import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from "
 import { resolve, join } from "path";
 import type { BenchmarkResult, RunSummary } from "./types.ts";
 import { loadConfig } from "./config.ts";
-
-const RESULTS_DIR = resolve("./results");
-const PROMPTS_DIR = resolve("./prompts");
+import { sanitizeModelName, ensureDir, parseArgs, checkOpencodeCli, RESULTS_DIR, SOLUTIONS_DIR } from "./utils.ts";
 
 function getLatestResultFile(): string | null {
   const files = readdirSync(RESULTS_DIR).filter(f => f.endsWith('.json'));
@@ -19,13 +17,22 @@ function getLatestResultFile(): string | null {
   return sorted[0]?.replace('.json', '') || null;
 }
 
-function parseArgs(): { model: string } {
+function parseArgsWithVerifier(): { model: string; testCase?: string; verifier?: string } {
   const args = process.argv.slice(2);
   let model: string | undefined;
+  let testCase: string | undefined;
+  let verifier: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "-m" || args[i] === "--model") {
       model = args[i + 1];
+      i++;
+    } else if (args[i] === "-t" || args[i] === "--test") {
+      testCase = args[i + 1];
+      i++;
+    } else if (args[i] === "-v" || args[i] === "--verifier") {
+      verifier = args[i + 1];
+      i++;
     }
   }
 
@@ -36,23 +43,17 @@ function parseArgs(): { model: string } {
     if (!model) {
       console.error("\n❌ Error: No results found. Run benchmark first or specify -m flag:");
       console.error("   bun run src/verify.ts -m \"opencode-minimax-m2-5-free\"");
+      console.error("   bun run src/verify.ts -m \"opencode-minimax-m2-5-free\" -t EXTRACT-FAST-kuleba");
       process.exit(1);
     }
     console.log(`📂 Auto-detected latest result: ${model}`);
   }
 
-  return { model };
-}
+  if (testCase) {
+    console.log(`🎯 Verifying single test case: ${testCase}`);
+  }
 
-function sanitizeModelName(model: string): string {
-  return model
-    .replace(/[^a-zA-Z0-9]/g, (match) => {
-      if (match === "/" || match === ":" || match === "-") return "-";
-      if (match === ".") return "-";
-      return "_";
-    })
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
+  return { model, testCase, verifier };
 }
 
 function loadResult(model: string): RunSummary | null {
@@ -138,26 +139,28 @@ Respond with a JSON object in this exact format:
 Respond ONLY with the JSON, no other text.`;
 }
 
-async function callLLM(prompt: string, model: string, timeout: number = 120000, expected?: string): Promise<{
+const PROMPTS_DIR = resolve("./prompts");
+
+async function callLLM(prompt: string, model: string, timeout: number = 120000): Promise<{
   correct: boolean;
   score: number;
   reasoning: string;
 } | null> {
   try {
-    const env: Record<string, string> = {
-      ...process.env,
-      OPENCODE_MODEL: model,
-    };
-
     const proc = Bun.spawn(["opencode", "run", "--model", model, prompt], {
-      env,
+      env: { ...process.env, OPENCODE_MODEL: model },
       stdout: "pipe",
       stderr: "pipe",
     });
 
+    let killed = false;
     const timeoutPromise = new Promise<null>((_, reject) => {
       setTimeout(() => {
-        proc.kill();
+        killed = true;
+        proc.kill("SIGTERM");
+        setTimeout(() => {
+          if (!proc.exited) proc.kill("SIGKILL");
+        }, 5000);
         reject(new Error("Timeout"));
       }, timeout);
     });
@@ -168,7 +171,13 @@ async function callLLM(prompt: string, model: string, timeout: number = 120000, 
         new Response(proc.stderr).text(),
       ]);
       const exitCode = await proc.exited;
-      if (exitCode === 0) {
+      
+      if (killed) {
+        throw new Error("Timeout");
+      }
+      
+      const hasError = stderr.includes("Error:") || stderr.includes("error:") || exitCode !== 0;
+      if (!hasError) {
         return stdout;
       } else {
         throw new Error(stderr || `Exit code: ${exitCode}`);
@@ -222,29 +231,6 @@ async function callLLM(prompt: string, model: string, timeout: number = 120000, 
     const lowerResponse = textToParse.toLowerCase();
     const trimmedResponse = textToParse.trim();
     
-    if (expected) {
-      const expectedTrimmed = expected.trim();
-      const expectedUpper = expectedTrimmed.toUpperCase();
-      const responseUpper = trimmedResponse.toUpperCase();
-      
-      if (responseUpper.startsWith(expectedUpper) || lowerResponse.includes(expectedTrimmed.toLowerCase())) {
-        return {
-          correct: true,
-          score: 1,
-          reasoning: `Response contains expected answer: ${expectedTrimmed.slice(0, 50)}`
-        };
-      }
-      
-      const firstWord = trimmedResponse.split(/[\s\n]/)[0]?.toUpperCase();
-      if (firstWord && (firstWord === expectedUpper || firstWord.slice(0, 3) === expectedUpper.slice(0, 3))) {
-        return {
-          correct: true,
-          score: 1,
-          reasoning: `Response starts with expected answer: ${expectedTrimmed.slice(0, 50)}`
-        };
-      }
-    }
-    
     const isPositive = lowerResponse.includes("correct") && !lowerResponse.includes("incorrect");
     const hasGoodScore = lowerResponse.includes("1") || lowerResponse.includes("100%") || lowerResponse.includes("perfect") || lowerResponse.includes("giusto") || lowerResponse.includes("corretto");
     
@@ -269,7 +255,7 @@ async function callLLM(prompt: string, model: string, timeout: number = 120000, 
     console.error("Response:", textToParse.slice(0, 500));
     return null;
   } catch (e: any) {
-    console.error("❌ LLM call failed:", e.message || String(e));
+    console.error("❌ LLM call failed:", e.stack || e.message || String(e));
     return null;
   }
 }
@@ -277,18 +263,39 @@ async function callLLM(prompt: string, model: string, timeout: number = 120000, 
 async function verifyResults(
   result: RunSummary,
   modelToVerify: string,
-  verifierModel: string
+  verifierModel: string,
+  singleTestCase?: string
 ): Promise<RunSummary> {
-  console.log(`\n🔍 Verifying ${result.results.length} test cases using ${verifierModel}`);
+  let resultsToVerify = result.results;
+  
+  if (singleTestCase) {
+    const found = result.results.find(r => r.testCase === singleTestCase);
+    if (!found) {
+      console.error(`❌ Test case not found in results: ${singleTestCase}`);
+      console.log(`📋 Available test cases: ${result.results.map(r => r.testCase).join(", ")}`);
+      process.exit(1);
+    }
+    resultsToVerify = [found];
+    console.log(`🔍 Verifying single test case: ${singleTestCase}`);
+  } else {
+    console.log(`\n🔍 Verifying ${result.results.length} test cases using ${verifierModel}`);
+  }
   console.log("=".repeat(50));
 
-  for (let i = 0; i < result.results.length; i++) {
-    const r = result.results[i];
-    console.log(`\n📋 ${i + 1}/${result.results.length}: ${r.testCase}`);
+  for (let i = 0; i < resultsToVerify.length; i++) {
+    const r = resultsToVerify[i];
+    console.log(`\n📋 ${i + 1}/${resultsToVerify.length}: ${r.testCase}`);
 
     const prompt = loadPrompt(r.testCase);
     if (!prompt) {
       console.warn(`⚠️  Skipping ${r.testCase} - no prompt found`);
+      r.llmVerification = {
+        verifiedBy: verifierModel,
+        timestamp: new Date().toISOString(),
+        correct: false,
+        score: 0,
+        reasoning: "Failed: prompt not found",
+      };
       continue;
     }
 
@@ -300,7 +307,7 @@ async function verifyResults(
     );
 
     console.log("⏳ Calling LLM for verification...");
-    const verification = await callLLM(verificationPrompt, verifierModel, 120000, r.expected);
+    const verification = await callLLM(verificationPrompt, verifierModel, 120000);
 
     if (verification) {
       r.llmVerification = {
@@ -315,6 +322,13 @@ async function verifyResults(
       console.log(`  ${status} Score: ${verification.score}`);
       console.log(`  📝 ${verification.reasoning.slice(0, 100)}...`);
     } else {
+      r.llmVerification = {
+        verifiedBy: verifierModel,
+        timestamp: new Date().toISOString(),
+        correct: false,
+        score: 0,
+        reasoning: "Failed: LLM verification call failed",
+      };
       console.error(`  ❌ Verification failed`);
     }
   }
@@ -335,12 +349,19 @@ async function main() {
   console.log("🔍 LLM-Based Verification Runner");
   console.log("=".repeat(50));
 
-  const { model } = parseArgs();
+  const { model, testCase, verifier } = parseArgsWithVerifier();
   const config = loadConfig();
-  const verifier = config.verification?.verifierModel || "opencode/minimax-m2.5-free";
+  const verifierModel = verifier || config.verification?.verifierModel || "opencode/minimax-m2.5-free";
+
+  const hasOpencode = await checkOpencodeCli();
+  if (!hasOpencode) {
+    console.error("\n❌ Error: opencode CLI not found in PATH");
+    console.error("   Please install opencode first: https://opencode.ai");
+    process.exit(1);
+  }
 
   console.log(`\n📂 Loading results for model: ${model}`);
-  console.log(`🤖 Using verifier model: ${verifier}`);
+  console.log(`🤖 Using verifier model: ${verifierModel}`);
 
   const result = loadResult(model);
   if (!result) {
@@ -349,7 +370,7 @@ async function main() {
 
   console.log(`\n📋 Found ${result.results.length} test cases`);
   
-  const verifiedResult = await verifyResults(result, model, verifier);
+  const verifiedResult = await verifyResults(result, model, verifierModel, testCase);
   saveResult(verifiedResult, model);
 
   console.log("\n✨ Verification complete!");
