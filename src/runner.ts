@@ -9,11 +9,11 @@ export function mergeResults(existing: RunSummary, newResults: BenchmarkResult[]
   const resultsMap = new Map<string, BenchmarkResult>();
   
   for (const r of existing.results) {
-    resultsMap.set(r.testCase, r);
+    resultsMap.set(`${r.model}|${r.testCase}`, r);
   }
   
   for (const r of newResults) {
-    resultsMap.set(r.testCase, r);
+    resultsMap.set(`${r.model}|${r.testCase}`, r);
   }
   
   const mergedResults = Array.from(resultsMap.values());

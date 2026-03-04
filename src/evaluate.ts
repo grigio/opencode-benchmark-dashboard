@@ -2,35 +2,7 @@ import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from "
 import { resolve, join } from "path";
 import type { BenchmarkConfig, BenchmarkResult, RunSummary } from "./types.ts";
 import { loadConfig } from "./config.ts";
-import { sanitizeModelName, ensureDir, parseArgs, checkOpencodeCli, RESULTS_DIR, SOLUTIONS_DIR } from "./utils.ts";
-
-const levenshteinDistance = (a: string, b: string): number => {
-  const matrix: number[][] = [];
-  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1
-        );
-      }
-    }
-  }
-  return matrix[b.length][a.length];
-};
-
-const normalizeCode = (code: string): string => {
-  return code
-    .replace(/\s+/g, " ")
-    .replace(/\s*([(){}:,])\s*/g, "$1")
-    .trim()
-    .toLowerCase();
-};
+import { sanitizeModelName, ensureDir, parseArgs, checkOpencodeCli, RESULTS_DIR, SOLUTIONS_DIR, levenshteinDistance, normalizeCode, isRunSummary } from "./utils.ts";
 
 export interface EvaluationResult {
   correct: boolean;
@@ -162,7 +134,18 @@ function loadResult(model: string): RunSummary | null {
   }
 
   const content = readFileSync(resultPath, "utf-8");
-  return JSON.parse(content);
+  try {
+    const parsed = JSON.parse(content);
+    if (isRunSummary(parsed)) {
+      return parsed;
+    } else {
+      console.error(`❌ Invalid result format in ${resultPath}`);
+      return null;
+    }
+  } catch (e) {
+    console.error(`❌ Failed to parse ${resultPath}:`, e);
+    return null;
+  }
 }
 
 function saveResult(result: RunSummary, model: string) {

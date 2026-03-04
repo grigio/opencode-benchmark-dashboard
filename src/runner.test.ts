@@ -1,8 +1,8 @@
 import { describe, test, expect } from "bun:test";
-import { verify } from "./evaluate";
+import { verify } from "./verifier";
 import { loadConfig } from "./config";
 import { mergeResults, loadExistingResults, sanitizeModelName } from "./runner";
-import { parseArgs, ensureDir, generateRunId, checkOpencodeCli } from "./utils";
+import { parseArgs, ensureDir, generateRunId, checkOpencodeCli, levenshteinDistance, normalizeCode, validateModelName, isRunSummary } from "./utils";
 import { existsSync } from "fs";
 import { resolve } from "path";
 import { rmSync } from "fs";
@@ -214,5 +214,190 @@ describe("checkOpencodeCli", () => {
   test("returns a boolean (async)", async () => {
     const result = await checkOpencodeCli();
     expect(typeof result).toBe("boolean");
+  });
+});
+
+describe("levenshteinDistance", () => {
+  test("returns 0 for identical strings", () => {
+    expect(levenshteinDistance("hello", "hello")).toBe(0);
+  });
+
+  test("returns correct distance for simple cases", () => {
+    expect(levenshteinDistance("kitten", "sitting")).toBe(3);
+    expect(levenshteinDistance("saturday", "sunday")).toBe(3);
+  });
+
+  test("handles empty strings", () => {
+    expect(levenshteinDistance("", "abc")).toBe(3);
+    expect(levenshteinDistance("abc", "")).toBe(3);
+    expect(levenshteinDistance("", "")).toBe(0);
+  });
+
+  test("handles single character differences", () => {
+    expect(levenshteinDistance("a", "b")).toBe(1);
+    expect(levenshteinDistance("ab", "ac")).toBe(1);
+  });
+});
+
+describe("normalizeCode", () => {
+  test("removes extra whitespace and normalizes", () => {
+    const input = "function  test()   { return  1; }";
+    const expected = "function test(){return 1;}";
+    expect(normalizeCode(input)).toBe(expected);
+  });
+
+  test("removes whitespace around punctuation", () => {
+    const input = "function add ( a , b ) { return 1; }";
+    const expected = "function add(a,b){return 1;}";
+    expect(normalizeCode(input)).toBe(expected);
+  });
+
+  test("converts to lowercase", () => {
+    expect(normalizeCode("HELLO WORLD")).toBe("hello world");
+  });
+
+  test("trims leading and trailing whitespace", () => {
+    expect(normalizeCode("  hello  ")).toBe("hello");
+  });
+
+  test("handles complex code", () => {
+    const input = `
+      function calculate( x , y )
+      {
+        return x + y ;
+      }
+    `;
+    const expected = "function calculate(x,y){return x + y ;}";
+    expect(normalizeCode(input)).toBe(expected);
+  });
+});
+
+describe("validateModelName", () => {
+  test("accepts valid model names with alphanumeric and special chars", () => {
+    expect(validateModelName("opencode/minimax-m2.5-free")).toBe(true);
+    expect(validateModelName("model_name")).toBe(true);
+    expect(validateModelName("model-name")).toBe(true);
+    expect(validateModelName("model.name")).toBe(true);
+    expect(validateModelName("model:name")).toBe(true);
+  });
+
+  test("rejects empty strings", () => {
+    expect(validateModelName("")).toBe(false);
+  });
+
+  test("rejects names with special characters", () => {
+    expect(validateModelName("model;name")).toBe(false);
+    expect(validateModelName("model&name")).toBe(false);
+    expect(validateModelName("model|name")).toBe(false);
+    expect(validateModelName("model'name")).toBe(false);
+    expect(validateModelName('model"name"')).toBe(false);
+  });
+
+  test("rejects overly long names", () => {
+    const longName = "a".repeat(101);
+    expect(validateModelName(longName)).toBe(false);
+  });
+
+  test("accepts reasonable length names", () => {
+    expect(validateModelName("a".repeat(100))).toBe(true);
+  });
+});
+
+describe("isRunSummary type guard", () => {
+  test("returns true for valid RunSummary", () => {
+    const valid: any = {
+      runId: "test-run",
+      timestamp: "2024-01-01T00:00:00Z",
+      totalTests: 10,
+      passed: 5,
+      failed: 5,
+      results: [],
+      modelStats: []
+    };
+    expect(isRunSummary(valid)).toBe(true);
+  });
+
+  test("returns false for invalid objects", () => {
+    expect(isRunSummary(null)).toBe(false);
+    expect(isRunSummary({})).toBe(false);
+    expect(isRunSummary({ runId: "test" })).toBe(false);
+    expect(isRunSummary("string")).toBe(false);
+    expect(isRunSummary(123)).toBe(false);
+  });
+
+  test("validates results array contains BenchmarkResult objects", () => {
+    const withInvalidResults: any = {
+      runId: "test",
+      timestamp: "2024-01-01T00:00:00Z",
+      totalTests: 1,
+      passed: 0,
+      failed: 1,
+      results: [{ invalid: "data" }],
+      modelStats: []
+    };
+    expect(isRunSummary(withInvalidResults)).toBe(false);
+  });
+});
+
+describe("verify (from verifier)", () => {
+  test("exact match works correctly", () => {
+    const result = verify("hello world", "HELLO WORLD", "exact");
+    expect(result.correct).toBe(true);
+    expect(result.score).toBe(1.0);
+    expect(result.method).toBe("exact");
+  });
+
+  test("contains method works correctly", () => {
+    const result = verify("The answer is 42", "42", "contains");
+    expect(result.correct).toBe(true);
+    expect(result.score).toBe(1.0);
+    expect(result.method).toBe("contains");
+  });
+
+  test("fuzzy method works correctly", () => {
+    const result = verify("function add(a, b) { return a + b; }", "function add(a,b){return a+b;}", "fuzzy");
+    expect(result.correct).toBe(true);
+    expect(result.method).toBe("fuzzy");
+    expect(result.score).toBeGreaterThan(0.7);
+  });
+
+  test("case sensitive option works", () => {
+    const result = verify("HELLO", "hello", "exact", true);
+    expect(result.correct).toBe(false);
+  });
+
+  test("returns false for unknown method", () => {
+    const result = verify("test", "test", "unknown" as any);
+    expect(result.correct).toBe(false);
+    expect(result.method).toBe("unknown");
+  });
+});
+
+describe("loadConfig", () => {
+  test("loads config from benchmark.json", () => {
+    const config = loadConfig();
+    expect(config).toBeDefined();
+    expect(typeof config.timeout).toBe("number");
+    expect(Array.isArray(config.testCases)).toBe(true);
+  });
+
+  test("provides default timeout if missing", () => {
+    // The config file should have timeout, but if it didn't, default would be 300000
+    const config = loadConfig();
+    expect(config.timeout).toBeGreaterThan(0);
+  });
+
+  test("includes verification config", () => {
+    const config = loadConfig();
+    expect(config.verification).toBeDefined();
+    expect(typeof config.verification?.caseSensitive).toBe("boolean");
+  });
+
+  test("loads test cases from prompts directory", () => {
+    const config = loadConfig();
+    // Should have at least some test cases if prompts directory exists
+    if (existsSync(resolve("./prompts"))) {
+      expect(config.testCases.length).toBeGreaterThan(0);
+    }
   });
 });
