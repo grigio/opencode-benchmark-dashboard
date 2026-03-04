@@ -1,7 +1,4 @@
 {
   "timeout": 600000,
-  "verification": {
-    "method": "llm",
-    "verifierModel": "opencode/minimax-m2.5-free"
-  }
+  "evaluatorModel": "opencode/minimax-m2.5-free"
 }

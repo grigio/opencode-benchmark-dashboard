@@ -263,7 +263,7 @@ async function callLLM(prompt: string, model: string, timeout: number = 120000):
 async function verifyResults(
   result: RunSummary,
   modelToVerify: string,
-  verifierModel: string,
+  evaluatorModel: string,
   singleTestCase?: string
 ): Promise<RunSummary> {
   let resultsToVerify = result.results;
@@ -278,7 +278,7 @@ async function verifyResults(
     resultsToVerify = [found];
     console.log(`🔍 Verifying single test case: ${singleTestCase}`);
   } else {
-    console.log(`\n🔍 Verifying ${result.results.length} test cases using ${verifierModel}`);
+    console.log(`\n🔍 Verifying ${result.results.length} test cases using ${evaluatorModel}`);
   }
   console.log("=".repeat(50));
 
@@ -290,7 +290,7 @@ async function verifyResults(
     if (!prompt) {
       console.warn(`⚠️  Skipping ${r.testCase} - no prompt found`);
       r.llmVerification = {
-        verifiedBy: verifierModel,
+        verifiedBy: evaluatorModel,
         timestamp: new Date().toISOString(),
         correct: false,
         score: 0,
@@ -307,11 +307,11 @@ async function verifyResults(
     );
 
     console.log("⏳ Calling LLM for verification...");
-    const verification = await callLLM(verificationPrompt, verifierModel, 120000);
+    const verification = await callLLM(verificationPrompt, evaluatorModel, 120000);
 
     if (verification) {
       r.llmVerification = {
-        verifiedBy: verifierModel,
+        verifiedBy: evaluatorModel,
         timestamp: new Date().toISOString(),
         correct: verification.correct,
         score: verification.score,
@@ -323,7 +323,7 @@ async function verifyResults(
       console.log(`  📝 ${verification.reasoning.slice(0, 100)}...`);
     } else {
       r.llmVerification = {
-        verifiedBy: verifierModel,
+        verifiedBy: evaluatorModel,
         timestamp: new Date().toISOString(),
         correct: false,
         score: 0,
@@ -351,7 +351,7 @@ async function main() {
 
   const { model, testCase, verifier } = parseArgsWithVerifier();
   const config = loadConfig();
-  const verifierModel = verifier || config.verification?.verifierModel || "opencode/minimax-m2.5-free";
+  const evaluatorModel = verifier || config.evaluatorModel || "opencode/minimax-m2.5-free";
 
   const hasOpencode = await checkOpencodeCli();
   if (!hasOpencode) {
@@ -361,7 +361,7 @@ async function main() {
   }
 
   console.log(`\n📂 Loading results for model: ${model}`);
-  console.log(`🤖 Using verifier model: ${verifierModel}`);
+  console.log(`🤖 Using verifier model: ${evaluatorModel}`);
 
   const result = loadResult(model);
   if (!result) {
@@ -370,7 +370,7 @@ async function main() {
 
   console.log(`\n📋 Found ${result.results.length} test cases`);
   
-  const verifiedResult = await verifyResults(result, model, verifierModel, testCase);
+  const verifiedResult = await verifyResults(result, model, evaluatorModel, testCase);
   saveResult(verifiedResult, model);
 
   console.log("\n✨ Verification complete!");

@@ -65,9 +65,9 @@ describe("loadConfig", () => {
   test("loads config from benchmark.json", () => {
     const config = loadConfig();
     expect(config).toBeDefined();
-    expect(config.timeout).toBe(300000);
+    expect(config.timeout).toBe(600000);
     expect(config.verification).toBeDefined();
-    expect(config.verification?.method).toBe("llm");
+    expect(config.verification?.method).toBeUndefined();
   });
 
   test("includes testCases from prompts directory", () => {

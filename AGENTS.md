@@ -14,7 +14,7 @@ harness-test/
 │   ├── dashboard.ts  # Web dashboard server
 │   ├── runner.ts     # Benchmark execution logic
 │   ├── verifier.ts   # Output verification (correctness)
-│   ├── verify.ts     # LLM-based verification runner
+│   ├── evaluate.ts  # LLM-based evaluation runner
 │   ├── config.ts     # Config file loader
 │   ├── utils.ts      # Shared utilities
 │   ├── types.ts      # TypeScript interfaces
@@ -92,14 +92,14 @@ bun run src/index.ts -m "opencode/minimax-m2.5-free"
 # Run single test case
 bun run src/index.ts -m "opencode/minimax-m2.5-free" -t EXTRACT-FAST-kuleba
 
-# Verify results (model to verify via -m, verifier from benchmark.json)
-bun run src/verify.ts -m "opencode-minimax-m2-5-free"
+# Evaluate results (model to evaluate via -m, verifier from benchmark.json)
+bun run evaluate -m "opencode-minimax-m2-5-free"
 
-# Verify with custom verifier model
-bun run src/verify.ts -m "opencode-minimax-m2-5-free" -v "opencode/another-model"
+# Evaluate with custom verifier model
+bun run evaluate -m "opencode-minimax-m2-5-free" -v "opencode/another-model"
 
-# Verify single test case
-bun run src/verify.ts -m "opencode-minimax-m2-5-free" -t EXTRACT-FAST-kuleba
+# Evaluate single test case
+bun run evaluate -m "opencode-minimax-m2-5-free" -t EXTRACT-FAST-kuleba
 
 # Start dashboard (in another terminal)
 bun run src/dashboard.ts

@@ -89,7 +89,6 @@ export function verify(
 
 export function getDefaultVerification(config: BenchmarkConfig) {
   return {
-    method: (config.verification?.method as "exact" | "contains" | "fuzzy") || "contains",
     caseSensitive: config.verification?.caseSensitive ?? false
   };
 }

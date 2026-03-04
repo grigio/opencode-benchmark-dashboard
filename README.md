@@ -84,7 +84,7 @@ Optional: add expected answer in `prompts-answers/{test_id}.txt`
 
 Edit `config/benchmark.json`:
 - `timeout`: Max time per test (ms, default: 300000)
-- `verification.method`: "llm", "contains", "exact", or "fuzzy"
+- `verification.method`: "contains", "exact", or "fuzzy" (default: LLM verification)
 - `verification.verifierModel`: Model used for LLM verification
 
 ## Requirements

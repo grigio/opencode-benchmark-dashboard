@@ -8,10 +8,9 @@ export interface TestCase {
 export interface BenchmarkConfig {
   testCases: TestCase[];
   timeout: number;
+  evaluatorModel?: string;
   verification?: {
-    method: "llm" | "contains" | "exact" | "fuzzy";
     caseSensitive?: boolean;
-    verifierModel?: string;
   };
 }
 
