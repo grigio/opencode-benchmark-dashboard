@@ -129,8 +129,8 @@ function loadResult(model: string): RunSummary | null {
   const resultPath = join(RESULTS_DIR, `${sanitized}.json`);
   
   if (!existsSync(resultPath)) {
-    console.error(`❌ Results file not found: ${resultPath}`);
-    return null;
+    console.log(`📂 Results file not found, trying solutions folder...`);
+    return loadResultFromSolutions(model, sanitized);
   }
 
   const content = readFileSync(resultPath, "utf-8");
@@ -146,6 +146,54 @@ function loadResult(model: string): RunSummary | null {
     console.error(`❌ Failed to parse ${resultPath}:`, e);
     return null;
   }
+}
+
+function loadResultFromSolutions(model: string, sanitized: string): RunSummary | null {
+  const solutionDir = join(SOLUTIONS_DIR, sanitized);
+  
+  if (!existsSync(solutionDir)) {
+    console.error(`❌ Solutions folder not found: ${solutionDir}`);
+    return null;
+  }
+
+  const files = readdirSync(solutionDir).filter(f => f.endsWith('.txt'));
+  if (files.length === 0) {
+    console.error(`❌ No solution files found in ${solutionDir}`);
+    return null;
+  }
+
+  const config = loadConfig();
+  const results: BenchmarkResult[] = [];
+
+  for (const file of files) {
+    const testCase = file.replace('.txt', '');
+    const testCaseConfig = config.testCases.find(tc => tc.id === testCase);
+    const expected = testCaseConfig?.expected || "";
+    const output = readFileSync(join(solutionDir, file), "utf-8").trim();
+
+    results.push({
+      timestamp: new Date().toISOString(),
+      model,
+      testCase,
+      latencyMs: 0,
+      correct: false,
+      score: 0,
+      output,
+      expected
+    });
+  }
+
+  console.log(`📋 Loaded ${results.length} solutions from ${solutionDir}`);
+
+  return {
+    runId: sanitized,
+    timestamp: new Date().toISOString(),
+    totalTests: results.length,
+    passed: 0,
+    failed: results.length,
+    results,
+    modelStats: []
+  };
 }
 
 function saveResult(result: RunSummary, model: string) {
