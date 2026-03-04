@@ -6,6 +6,18 @@ import { sanitizeModelName } from "./utils.ts";
 const RESULTS_DIR = resolve("./results");
 const PORT = 3000;
 
+function getLatencyMs(result: RunSummary["results"][0]): number {
+  if (result.latencyMs && result.latencyMs > 0) {
+    return result.latencyMs;
+  }
+  if (result.llmVerification?.timestamp && result.timestamp) {
+    const resultTime = new Date(result.timestamp).getTime();
+    const verifyTime = new Date(result.llmVerification.timestamp).getTime();
+    return verifyTime - resultTime;
+  }
+  return 0;
+}
+
 interface ModelData {
   model: string;
   runs: RunSummary[];
@@ -34,12 +46,22 @@ function loadAllRuns(): DashboardData {
       const run: RunSummary = JSON.parse(content);
       runs.push(run);
       
-      for (const stat of run.modelStats) {
-        models.add(stat.model);
+      if (run.modelStats && run.modelStats.length > 0) {
+        for (const stat of run.modelStats) {
+          models.add(stat.model);
+        }
+      } else if (run.results) {
+        for (const result of run.results) {
+          if (result.model) {
+            models.add(result.model);
+          }
+        }
       }
       
-      for (const result of run.results) {
-        testCases.add(result.testCase);
+      if (run.results) {
+        for (const result of run.results) {
+          testCases.add(result.testCase);
+        }
       }
     } catch (e) {
       console.error(`Error loading ${file}:`, e);
@@ -69,42 +91,89 @@ function loadModelData(): Map<string, ModelData> {
       const content = readFileSync(join(RESULTS_DIR, file), "utf-8");
       const run: RunSummary = JSON.parse(content);
       
-      for (const stat of run.modelStats) {
-        if (!modelMap.has(stat.model)) {
-          modelMap.set(stat.model, {
-            model: stat.model,
-            runs: [],
-            totalTests: 0,
-            totalPassed: 0,
-            totalFailed: 0,
-            avgLatency: 0,
-            accuracy: 0,
-            allResults: []
-          });
-        }
-        
-        const modelData = modelMap.get(stat.model)!;
-        modelData.runs.push(run);
-        modelData.totalTests += stat.totalTests;
-        modelData.totalPassed += stat.passed;
-        modelData.totalFailed += stat.failed;
-        modelData.avgLatency += stat.avgLatencyMs * stat.totalTests;
-        
-        for (const result of run.results) {
-          if (result.model === stat.model) {
-            const isCorrect = result.llmVerification ? result.llmVerification.correct : result.correct;
-            const finalScore = result.llmVerification ? result.llmVerification.score : result.score;
-            modelData.allResults.push({
-              testCase: result.testCase,
-              latencyMs: result.latencyMs,
-              correct: isCorrect,
-              score: finalScore,
-              timestamp: result.timestamp,
-              output: result.output,
-              expected: result.expected,
-              verification: result.llmVerification
+      if (run.modelStats && run.modelStats.length > 0) {
+        for (const stat of run.modelStats) {
+          if (!modelMap.has(stat.model)) {
+            modelMap.set(stat.model, {
+              model: stat.model,
+              runs: [],
+              totalTests: 0,
+              totalPassed: 0,
+              totalFailed: 0,
+              avgLatency: 0,
+              accuracy: 0,
+              allResults: []
             });
           }
+          
+          const modelData = modelMap.get(stat.model)!;
+          modelData.runs.push(run);
+          modelData.totalTests += stat.totalTests;
+          modelData.totalPassed += stat.passed;
+          modelData.totalFailed += stat.failed;
+          modelData.avgLatency += stat.avgLatencyMs * stat.totalTests;
+          
+          for (const result of run.results) {
+            if (result.model === stat.model) {
+              const isCorrect = result.llmVerification ? result.llmVerification.correct : result.correct;
+              const finalScore = result.llmVerification ? result.llmVerification.score : result.score;
+              const latency = getLatencyMs(result);
+              modelData.allResults.push({
+                testCase: result.testCase,
+                latencyMs: latency,
+                correct: isCorrect,
+                score: finalScore,
+                timestamp: result.timestamp,
+                output: result.output,
+                expected: result.expected,
+                verification: result.llmVerification
+              });
+            }
+          }
+        }
+      } else if (run.results) {
+        for (const result of run.results) {
+          const modelName = result.model;
+          if (!modelName) continue;
+          
+          if (!modelMap.has(modelName)) {
+            modelMap.set(modelName, {
+              model: modelName,
+              runs: [],
+              totalTests: 0,
+              totalPassed: 0,
+              totalFailed: 0,
+              avgLatency: 0,
+              accuracy: 0,
+              allResults: []
+            });
+          }
+          
+          const modelData = modelMap.get(modelName)!;
+          modelData.runs.push(run);
+          modelData.totalTests += 1;
+          
+          const isCorrect = result.llmVerification ? result.llmVerification.correct : result.correct;
+          const finalScore = result.llmVerification ? result.llmVerification.score : result.score;
+          
+          if (isCorrect) {
+            modelData.totalPassed += 1;
+          } else {
+            modelData.totalFailed += 1;
+          }
+          const latency = getLatencyMs(result);
+          modelData.avgLatency += latency;
+          
+          modelData.allResults.push({
+            testCase: result.testCase,
+            latencyMs: latency,
+            correct: isCorrect,
+            score: finalScore,
+            timestamp: result.timestamp,
+            output: result.output,
+            expected: result.expected,
+            verification: result.llmVerification
+          });
         }
       }
     } catch (e) {
@@ -209,14 +278,6 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
         <h3>Total Runs</h3>
         <div class="value">${data.runs.length}</div>
       </div>
-      <div class="stat-card">
-        <h3>Total Tests</h3>
-        <div class="value">${data.runs.reduce((sum, r) => sum + r.totalTests, 0)}</div>
-      </div>
-      <div class="stat-card">
-        <h3>Avg Accuracy</h3>
-        <div class="value">${data.runs.length > 0 ? Math.round(data.runs.reduce((sum, r) => sum + (r.passed / r.totalTests) * 100, 0) / data.runs.length) : 0}%</div>
-      </div>
     </div>
 
     <div class="charts">
@@ -298,8 +359,10 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
             if (!result.output || result.output.trim() === '') {
               return '<td class="heatmap-cell heatmap-empty" data-key="' + m + '|' + tc + '">-</td>';
             }
-            const cls = getHeatmapClass(result.correct, result.score);
-            const pct = Math.round(result.score * 100);
+            const isCorrect = result.verification ? result.verification.correct : result.correct;
+            const finalScore = result.verification ? result.verification.score : result.score;
+            const cls = getHeatmapClass(isCorrect, finalScore);
+            const pct = Math.round(finalScore * 100);
             const seconds = Math.round(result.latencyMs / 1000);
             return '<td class="heatmap-cell ' + cls + '" data-key="' + m + '|' + tc + '">' + pct + '% (' + seconds + 's)</td>';
           }
@@ -317,7 +380,10 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
       const [model, testCase] = key.split('|');
       document.getElementById('modalTitle').textContent = model + ' - ' + testCase;
       const matchClass = r.correct ? 'match' : 'no-match';
-      const reasoning = r.verification ? r.verification.reasoning : '';
+      const verification = r.verification || {};
+      const reasoning = verification.reasoning || '';
+      const verifiedBy = verification.verifiedBy || '';
+      const timestamp = verification.timestamp || '';
       document.getElementById('modalBody').innerHTML = \`
         <div class="modal-section \${matchClass}">
           <h4>Actual Output</h4>
@@ -327,6 +393,12 @@ const html = (data: DashboardData, modelData: Map<string, ModelData>) => {
           <h4>Expected Output</h4>
           <pre>\${escapeHtml(r.expected || '')}</pre>
         </div>
+        \${(verifiedBy || timestamp) ? \`
+        <div class="modal-section">
+          <h4>Verification Info</h4>
+          <pre>\${verifiedBy ? 'Verified by: ' + escapeHtml(verifiedBy) : ''}\${timestamp ? '\\nTimestamp: ' + escapeHtml(timestamp) : ''}</pre>
+        </div>
+        \` : ''}
         \${reasoning ? \`
         <div class="modal-section">
           <h4>LLM Verification Reasoning</h4>

@@ -1,7 +1,8 @@
-import { parseArgs, checkOpencodeCli, runOpencode, ensureDir, sanitizeModelName, SOLUTIONS_DIR } from "./utils.ts";
+import { parseArgs, checkOpencodeCli, runOpencode, ensureDir, sanitizeModelName, loadExistingResults, mergeResults, SOLUTIONS_DIR, RESULTS_DIR } from "./utils.ts";
 import { loadConfig } from "./config.ts";
 import { join } from "path";
 import { existsSync, writeFileSync } from "fs";
+import type { BenchmarkResult, RunSummary } from "./types.ts";
 
 async function main() {
   console.log("=".repeat(50));
@@ -79,7 +80,52 @@ async function main() {
     
     ensureDir(solutionDir);
     writeFileSync(solutionPath, result.output);
-    console.log(`\n💾 Saved solution to: ${solutionPath}`);
+
+    // Write result JSON with timestamp
+    const timestamp = new Date().toISOString();
+    const newResult: BenchmarkResult = {
+      timestamp,
+      model: args.model,
+      testCase: testCaseId,
+      latencyMs: result.latencyMs || 0,
+      correct: false,
+      score: 0,
+      output: result.output,
+      expected: testCase.expected,
+      error: result.error,
+    };
+
+    const existingResults = loadExistingResults(args.model);
+    let summary: RunSummary;
+
+    if (existingResults) {
+      summary = mergeResults(existingResults, [newResult]);
+    } else {
+      const avgLatency = newResult.latencyMs;
+      summary = {
+        runId: sanitizedModel,
+        timestamp,
+        totalTests: 1,
+        passed: 0,
+        failed: 1,
+        results: [newResult],
+        modelStats: [{
+          model: args.model,
+          totalTests: 1,
+          passed: 0,
+          failed: 1,
+          avgLatencyMs: Math.round(avgLatency),
+          accuracy: 0
+        }]
+      };
+    }
+
+    ensureDir(RESULTS_DIR);
+    const resultPath = join(RESULTS_DIR, `${sanitizedModel}.json`);
+    writeFileSync(resultPath, JSON.stringify(summary, null, 2));
+    
+    console.log(`\n💾 Saved solution to: ${solutionPath} (${result.latencyMs}ms)`);
+    console.log(`📊 Results saved to: ${resultPath}`);
 
     console.log("\n✅ Answer:");
     console.log("-".repeat(50));

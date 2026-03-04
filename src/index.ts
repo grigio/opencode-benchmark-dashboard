@@ -1,6 +1,4 @@
-import { loadConfig } from "./config.ts";
-import { runBenchmark, loadExistingResults } from "./runner.ts";
-import { parseArgs, checkOpencodeCli } from "./utils.ts";
+import { parseArgs, checkOpencodeCli, loadExistingResults } from "./utils.ts";
 
 async function main() {
   console.log("=".repeat(50));
@@ -23,27 +21,19 @@ async function main() {
     process.exit(1);
   }
 
-  const config = loadConfig();
-
-  if (args.testCase) {
-    const found = config.testCases.find(tc => tc.id === args.testCase);
-    if (!found) {
-      console.error(`\n❌ Error: Test case not found: ${args.testCase}`);
-      console.log(`📋 Available test cases: ${config.testCases.map(tc => tc.id).join(", ")}`);
-      process.exit(1);
-    }
-  }
-
-  console.log(`\n🎯 Running model: ${args.model}${args.testCase ? ` (single test: ${args.testCase})` : ""}`);
-  
   const existingResults = loadExistingResults(args.model);
   if (existingResults) {
     console.log(`📂 Found existing results with ${existingResults.totalTests} test cases`);
   }
-  
-  await runBenchmark(config, args.model, args.testCase, existingResults);
+
+  const child = Bun.spawn(["bun", "run", "src/answer.ts", "-m", args.model, ...(args.testCase ? ["-t", args.testCase] : [])], {
+    stdio: ["inherit", "inherit", "inherit"]
+  });
+
+  await child.exited;
 
   console.log("\n✨ Benchmark complete!");
+  console.log("💻 To verify results: bun run src/evaluate.ts -m \"" + args.model + "\"");
   console.log("💻 To start dashboard: bun run src/dashboard.ts");
   
   process.exit(0);

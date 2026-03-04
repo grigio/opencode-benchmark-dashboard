@@ -170,7 +170,7 @@ function loadResultFromSolutions(model: string, sanitized: string): RunSummary |
     const testCaseConfig = config.testCases.find(tc => tc.id === testCase);
     const expected = testCaseConfig?.expected || "";
     const output = readFileSync(join(solutionDir, file), "utf-8").trim();
-
+    
     results.push({
       timestamp: new Date().toISOString(),
       model,

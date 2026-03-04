@@ -59,13 +59,14 @@ export async function runOpencode(
   prompt: string,
   model: string,
   timeout: number
-): Promise<{ output: string; error?: string }> {
+): Promise<{ output: string; error?: string; latencyMs?: number }> {
   // Validate model name to prevent command injection
   if (!validateModelName(model)) {
     return { output: "", error: `Invalid model name: ${model}` };
   }
 
   try {
+    const startTime = Date.now();
     const proc = Bun.spawn(["opencode", "run", "--model", model, prompt], {
       env: { ...process.env, OPENCODE_MODEL: model },
       stdout: "pipe",
@@ -73,37 +74,38 @@ export async function runOpencode(
     });
 
     let killed = false;
-    const timeoutPromise = new Promise<{ output: string; error: string }>((_, reject) => {
+    const timeoutPromise = new Promise<{ output: string; error: string; latencyMs: number }>((_, reject) => {
       setTimeout(() => {
         killed = true;
         proc.kill("SIGTERM");
         setTimeout(() => {
           if (!proc.exited) proc.kill("SIGKILL");
         }, 5000);
-        reject({ output: "", error: "Timeout" });
+        reject({ output: "", error: "Timeout", latencyMs: Date.now() - startTime });
       }, timeout);
     });
 
-    const outputPromise = (async (): Promise<{ output: string; error?: string }> => {
+    const outputPromise = (async (): Promise<{ output: string; error?: string; latencyMs: number }> => {
       const stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
       const exitCode = await proc.exited;
+      const latencyMs = Date.now() - startTime;
       
       if (killed) {
-        return { output: "", error: "Timeout" };
+        return { output: "", error: "Timeout", latencyMs };
       }
       
       const hasError = stderr.includes("Error:") || stderr.includes("error:") || exitCode !== 0;
       if (!hasError) {
-        return { output: stdout, error: undefined };
+        return { output: stdout, error: undefined, latencyMs };
       } else {
-        return { output: stdout, error: stderr || `Exit code: ${exitCode}` };
+        return { output: stdout, error: stderr || `Exit code: ${exitCode}`, latencyMs };
       }
     })();
 
     return await Promise.race([outputPromise, timeoutPromise]);
   } catch (e: any) {
-    return { output: "", error: e.message || String(e) };
+    return { output: "", error: e.message || String(e), latencyMs: 0 };
   }
 }
 
@@ -207,6 +209,43 @@ export function isBenchmarkResult(obj: any): obj is import("./types.ts").Benchma
 /**
  * Type guard for RunSummary
  */
+export function mergeResults(existing: import("./types.ts").RunSummary, newResults: import("./types.ts").BenchmarkResult[]): import("./types.ts").RunSummary {
+  const resultsMap = new Map<string, import("./types.ts").BenchmarkResult>();
+  
+  for (const r of existing.results) {
+    resultsMap.set(`${r.model}|${r.testCase}`, r);
+  }
+  
+  for (const r of newResults) {
+    resultsMap.set(`${r.model}|${r.testCase}`, r);
+  }
+  
+  const mergedResults = Array.from(resultsMap.values());
+  
+  const passed = mergedResults.filter(r => r.correct).length;
+  const failed = mergedResults.length - passed;
+  
+  const avgLatency = mergedResults.reduce((sum, r) => sum + r.latencyMs, 0) / mergedResults.length;
+  
+  const modelStats: import("./types.ts").ModelStats[] = [{
+    model: existing.modelStats[0]?.model || newResults[0]?.model || "",
+    totalTests: mergedResults.length,
+    passed,
+    failed,
+    avgLatencyMs: Math.round(avgLatency),
+    accuracy: Math.round((passed / mergedResults.length) * 100)
+  }];
+
+  return {
+    ...existing,
+    totalTests: mergedResults.length,
+    passed,
+    failed,
+    results: mergedResults,
+    modelStats
+  };
+}
+
 export function isRunSummary(obj: any): obj is import("./types.ts").RunSummary {
   if (!obj || typeof obj !== "object") return false;
   return (

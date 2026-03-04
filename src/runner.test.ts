@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { verify } from "./verifier";
 import { loadConfig } from "./config";
-import { mergeResults, loadExistingResults, sanitizeModelName } from "./runner";
+import { mergeResults, loadExistingResults, sanitizeModelName } from "./utils";
 import { parseArgs, ensureDir, generateRunId, checkOpencodeCli, levenshteinDistance, normalizeCode, validateModelName, isRunSummary } from "./utils";
 import { existsSync } from "fs";
 import { resolve } from "path";
