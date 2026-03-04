@@ -1,8 +1,104 @@
 import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from "fs";
 import { resolve, join } from "path";
-import type { BenchmarkResult, RunSummary } from "./types.ts";
+import type { BenchmarkConfig, BenchmarkResult, RunSummary } from "./types.ts";
 import { loadConfig } from "./config.ts";
 import { sanitizeModelName, ensureDir, parseArgs, checkOpencodeCli, RESULTS_DIR, SOLUTIONS_DIR } from "./utils.ts";
+
+const levenshteinDistance = (a: string, b: string): number => {
+  const matrix: number[][] = [];
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+};
+
+const normalizeCode = (code: string): string => {
+  return code
+    .replace(/\s+/g, " ")
+    .replace(/\s*([(){}:,])\s*/g, "$1")
+    .trim()
+    .toLowerCase();
+};
+
+export interface EvaluationResult {
+  correct: boolean;
+  score: number;
+  method: string;
+  details: string;
+}
+
+export function evaluate(
+  output: string,
+  expected: string,
+  method: "exact" | "contains" | "fuzzy" = "contains",
+  caseSensitive: boolean = false
+): EvaluationResult {
+  const normalizedOutput = caseSensitive ? output : output.toLowerCase();
+  const normalizedExpected = caseSensitive ? expected : expected.toLowerCase();
+
+  switch (method) {
+    case "exact":
+      const exactMatch = normalizedOutput.trim() === normalizedExpected.trim();
+      return {
+        correct: exactMatch,
+        score: exactMatch ? 1.0 : 0.0,
+        method: "exact",
+        details: exactMatch ? "Exact match" : "No exact match"
+      };
+
+    case "contains":
+      const containsExpected = normalizedOutput.includes(normalizedExpected);
+      return {
+        correct: containsExpected,
+        score: containsExpected ? 1.0 : 0.0,
+        method: "contains",
+        details: containsExpected ? "Output contains expected" : "Expected not found in output"
+      };
+
+    case "fuzzy":
+      const normOut = normalizeCode(output);
+      const normExp = normalizeCode(expected);
+      const distance = levenshteinDistance(normOut, normExp);
+      const maxLen = Math.max(normOut.length, normExp.length);
+      const similarity = maxLen > 0 ? 1 - distance / maxLen : 1.0;
+      const threshold = 0.7;
+      return {
+        correct: similarity >= threshold,
+        score: similarity,
+        method: "fuzzy",
+        details: `Similarity: ${(similarity * 100).toFixed(1)}% (threshold: ${threshold * 100}%)`
+      };
+
+    default:
+      return {
+        correct: false,
+        score: 0.0,
+        method: "unknown",
+        details: "Unknown evaluation method"
+      };
+  }
+}
+
+export const verify = evaluate;
+export { getDefaultEvaluation as getDefaultVerification };
+
+export function getDefaultEvaluation(config: BenchmarkConfig) {
+  return {
+    caseSensitive: config.verification?.caseSensitive ?? false
+  };
+}
 
 function getLatestResultFile(): string | null {
   const files = readdirSync(RESULTS_DIR).filter(f => f.endsWith('.json'));
@@ -17,11 +113,11 @@ function getLatestResultFile(): string | null {
   return sorted[0]?.replace('.json', '') || null;
 }
 
-function parseArgsWithVerifier(): { model: string; testCase?: string; verifier?: string } {
+function parseArgsWithEvaluator(): { model: string; testCase?: string; evaluator?: string } {
   const args = process.argv.slice(2);
   let model: string | undefined;
   let testCase: string | undefined;
-  let verifier: string | undefined;
+  let evaluator: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "-m" || args[i] === "--model") {
@@ -30,8 +126,8 @@ function parseArgsWithVerifier(): { model: string; testCase?: string; verifier?:
     } else if (args[i] === "-t" || args[i] === "--test") {
       testCase = args[i + 1];
       i++;
-    } else if (args[i] === "-v" || args[i] === "--verifier") {
-      verifier = args[i + 1];
+    } else if (args[i] === "-e" || args[i] === "--evaluator") {
+      evaluator = args[i + 1];
       i++;
     }
   }
@@ -42,18 +138,18 @@ function parseArgsWithVerifier(): { model: string; testCase?: string; verifier?:
     model = getLatestResultFile() || undefined;
     if (!model) {
       console.error("\n❌ Error: No results found. Run benchmark first or specify -m flag:");
-      console.error("   bun run src/verify.ts -m \"opencode-minimax-m2-5-free\"");
-      console.error("   bun run src/verify.ts -m \"opencode-minimax-m2-5-free\" -t EXTRACT-FAST-kuleba");
+      console.error("   bun run src/evaluate.ts -m \"opencode-minimax-m2-5-free\"");
+      console.error("   bun run src/evaluate.ts -m \"opencode-minimax-m2-5-free\" -t EXTRACT-FAST-kuleba");
       process.exit(1);
     }
     console.log(`📂 Auto-detected latest result: ${model}`);
   }
 
   if (testCase) {
-    console.log(`🎯 Verifying single test case: ${testCase}`);
+    console.log(`🎯 Evaluating single test case: ${testCase}`);
   }
 
-  return { model, testCase, verifier };
+  return { model, testCase, evaluator };
 }
 
 function loadResult(model: string): RunSummary | null {
@@ -260,7 +356,7 @@ async function callLLM(prompt: string, model: string, timeout: number = 120000):
   }
 }
 
-async function verifyResults(
+async function evaluateResults(
   result: RunSummary,
   modelToVerify: string,
   evaluatorModel: string,
@@ -346,12 +442,12 @@ async function verifyResults(
 
 async function main() {
   console.log("=".repeat(50));
-  console.log("🔍 LLM-Based Verification Runner");
+  console.log("🔍 LLM-Based Evaluation Runner");
   console.log("=".repeat(50));
 
-  const { model, testCase, verifier } = parseArgsWithVerifier();
+  const { model, testCase, evaluator } = parseArgsWithEvaluator();
   const config = loadConfig();
-  const evaluatorModel = verifier || config.evaluatorModel || "opencode/minimax-m2.5-free";
+  const evaluatorModel = evaluator || config.evaluatorModel || "opencode/minimax-m2.5-free";
 
   const hasOpencode = await checkOpencodeCli();
   if (!hasOpencode) {
@@ -361,7 +457,7 @@ async function main() {
   }
 
   console.log(`\n📂 Loading results for model: ${model}`);
-  console.log(`🤖 Using verifier model: ${evaluatorModel}`);
+  console.log(`🤖 Using evaluator model: ${evaluatorModel}`);
 
   const result = loadResult(model);
   if (!result) {
@@ -370,10 +466,10 @@ async function main() {
 
   console.log(`\n📋 Found ${result.results.length} test cases`);
   
-  const verifiedResult = await verifyResults(result, model, evaluatorModel, testCase);
-  saveResult(verifiedResult, model);
+  const evaluatedResult = await evaluateResults(result, model, evaluatorModel, testCase);
+  saveResult(evaluatedResult, model);
 
-  console.log("\n✨ Verification complete!");
+  console.log("\n✨ Evaluation complete!");
   process.exit(0);
 }
 

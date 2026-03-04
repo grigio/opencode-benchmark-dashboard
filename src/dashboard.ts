@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { resolve, join } from "path";
 import type { RunSummary, DashboardData, ModelResult, LLMVerification } from "./types.ts";
+import { sanitizeModelName } from "./utils.ts";
 
 const RESULTS_DIR = resolve("./results");
 const PORT = 3000;
@@ -14,17 +15,6 @@ interface ModelData {
   avgLatency: number;
   accuracy: number;
   allResults: (ModelResult & { output: string; expected: string; verification?: LLMVerification })[];
-}
-
-function sanitizeModelName(model: string): string {
-  return model
-    .replace(/[^a-zA-Z0-9]/g, (match) => {
-      if (match === "/" || match === ":" || match === "-") return "-";
-      if (match === ".") return "-";
-      return "_";
-    })
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
 }
 
 function loadAllRuns(): DashboardData {

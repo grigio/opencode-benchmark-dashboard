@@ -169,7 +169,7 @@ export async function runBenchmark(
   console.log(`   Total: ${results.length}`);
   console.log(`   ✅ Passed: ${passed}`);
   console.log(`   ❌ Failed: ${failed}`);
-  console.log(`\n💡 Run verification separately: bun run src/verify.ts`);
+  console.log(`\n💡 Run verification separately: bun run evaluate -m "${singleModel}"`);
 
   return summary;
 }

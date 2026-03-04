@@ -5,6 +5,14 @@ import type { BenchmarkConfig, TestCase } from "./types.ts";
 const PROMPTS_DIR = resolve("./prompts");
 const ANSWERS_DIR = resolve("./prompts-answers");
 
+interface RawBenchmarkConfig {
+  timeout?: number;
+  evaluatorModel?: string;
+  verification?: {
+    caseSensitive?: boolean;
+  };
+}
+
 function loadTestCasesFromFiles(): TestCase[] {
   if (!existsSync(PROMPTS_DIR)) {
     console.warn(`Prompts directory not found: ${PROMPTS_DIR}`);
@@ -42,7 +50,7 @@ export function loadConfig(configPath?: string): BenchmarkConfig {
     throw new Error(`Config file not found: ${path}`);
   }
 
-  let jsonConfig: any;
+  let jsonConfig: RawBenchmarkConfig;
   try {
     const content = readFileSync(path, "utf-8");
     jsonConfig = JSON.parse(content);
@@ -58,7 +66,9 @@ export function loadConfig(configPath?: string): BenchmarkConfig {
   const testCases = loadTestCasesFromFiles();
 
   return {
-    ...jsonConfig,
+    timeout: jsonConfig.timeout!,
+    evaluatorModel: jsonConfig.evaluatorModel,
+    verification: jsonConfig.verification ?? { caseSensitive: false },
     testCases
   };
 }

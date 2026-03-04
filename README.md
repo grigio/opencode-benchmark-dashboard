@@ -1,6 +1,13 @@
-# Harness Test
+# opencode-benchmark-dashboard
 
 Benchmark system for testing opencode with various LLM models, measuring speed (latency) and correctness (accuracy).
+
+![benchmark report](opencode-benchmark-dashboard.png)
+
+## Why ?
+- The best tradeoff depends on your use-case and your hardware
+- accuracy vs speed: reasoning, tok/s, different quantizations matters. Some small LLM can fix themself using tools, a fast LLM can be slow because it wastes too many tokens in the reasoning. Just test them in real world scenarios.
+
 
 ## Quick Start
 
@@ -8,84 +15,20 @@ Benchmark system for testing opencode with various LLM models, measuring speed (
 # Install dependencies
 bun install
 
-# Run benchmark with a specific model
-bun run src/index.ts -m "opencode/minimax-m2.5-free"
+# Fill prompts/ and prompt-answers/ with your test cases ex. CODING-my-single-test.txt
+# Check `~/.config/opencode/opencode.json` with your OpenAI-compatible models.
 
-# Start dashboard (in another terminal)
-bun run src/dashboard.ts
+# It generates the answers with a specific model. use `opencode models` to see the availables
+bun run answer -m "opencode/minimax-m2.5-free"
+# bun run answer -m "opencode/minimax-m2.5-free" -t CODING-my-single-test
+
+# It generates the evaluations with a specific model.
+bun run evaluate -m "opencode/minimax-m2.5-free"
+# bun run evaluate -m "opencode/minimax-m2.5-free" -t CODING-my-single-test
+
+# it opens the dashboard on http://localhost:3000
+bun run dashboard
 ```
-
-## Project Structure
-
-```
-harness-test/
-├── src/
-│   ├── index.ts      # Main entry point - runs benchmark
-│   ├── dashboard.ts  # Web dashboard server
-│   ├── runner.ts     # Benchmark execution logic
-│   ├── verifier.ts   # Output verification (correctness)
-│   ├── verify.ts     # LLM-based verification runner
-│   ├── config.ts     # Config file loader
-│   ├── utils.ts      # Shared utilities
-│   ├── types.ts      # TypeScript interfaces
-│   └── runner.test.ts # Tests
-├── config/
-│   └── benchmark.json    # Timeout & verification config
-├── prompts/               # Test case prompts (one file per test)
-├── prompts-answers/       # Expected answers (optional)
-├── solutions/             # Full model outputs
-├── results/               # JSON results per model
-└── dashboard/             # Static assets (optional)
-```
-
-## Usage
-
-### Running Benchmarks
-
-```bash
-bun run src/index.ts -m "opencode/minimax-m2.5-free"
-```
-
-Flags:
-- `-m, --model`: Model to test (required)
-- `-t, --test`: Run single test case (optional)
-- `-o, --timeout`: Override timeout in ms (optional)
-
-### Verification
-
-```bash
-bun run src/verify.ts -m "opencode-minimax-m2-5-free"
-```
-
-Flags:
-- `-m, --model`: Model to verify (auto-detects latest if omitted)
-- `-t, --test`: Verify single test case (optional)
-- `-v, --verifier`: Override verifier model (optional)
-
-Verifies results using an LLM-based verifier (model configured in `config/benchmark.json`).
-
-### Dashboard
-
-```bash
-bun run src/dashboard.ts
-```
-
-Starts a web dashboard on port 3000 to visualize benchmark results.
-
-## Adding Test Cases
-
-Add prompt files to `prompts/` folder:
-- Filename (without .txt) = test ID
-- File content = prompt sent to model
-
-Optional: add expected answer in `prompts-answers/{test_id}.txt`
-
-## Configuration
-
-Edit `config/benchmark.json`:
-- `timeout`: Max time per test (ms, default: 300000)
-- `verification.method`: "contains", "exact", or "fuzzy" (default: LLM verification)
-- `verification.verifierModel`: Model used for LLM verification
 
 ## Requirements
 
@@ -93,10 +36,3 @@ Edit `config/benchmark.json`:
 - [opencode](https://opencode.ai) CLI installed and in PATH
 - Models pre-configured in `~/.config/opencode/opencode.json`
 
-## Testing
-
-```bash
-bun test src/runner.test.ts
-```
-
-Tests cover: verifier logic, config loading, model name sanitization, result merging, and utility functions.

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { verify } from "./verifier";
+import { verify } from "./evaluate";
 import { loadConfig } from "./config";
 import { mergeResults, loadExistingResults, sanitizeModelName } from "./runner";
 import { parseArgs, ensureDir, generateRunId, checkOpencodeCli } from "./utils";
@@ -67,7 +67,6 @@ describe("loadConfig", () => {
     expect(config).toBeDefined();
     expect(config.timeout).toBe(600000);
     expect(config.verification).toBeDefined();
-    expect(config.verification?.method).toBeUndefined();
   });
 
   test("includes testCases from prompts directory", () => {

@@ -3,10 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "bun run src/index.ts",
     "answer": "bun run src/answer.ts",
     "evaluate": "bun run src/evaluate.ts",
-    "benchmark": "bun run src/index.ts",
     "dashboard": "bun run src/dashboard.ts"
   },
   "dependencies": {
